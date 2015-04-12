@@ -21,15 +21,21 @@
 	 listen/1,
 	 accept_loop/1]).
 
+-export([loop/2]). %%for process hibernate
+
 -define(SERVER, ?MODULE).
 
 -record(state, {lport :: integer(),
 	       listenerRef :: reference()}).
+
 -define(ListenPort, 6667).
 -define(ESCAPE,"#\\").
--define(INACTIVE_INIT_TIMEOUT, 60000).
+-define(INACTIVE_INIT_TIMEOUT, 15000).
+-define(Regtimer, 10000).
 
 -ifdef(TEST).
+-undef(ListenPort).
+-define(ListenPort, 6668).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 %%%===================================================================
@@ -108,7 +114,7 @@ handle_cast(_Msg, State) ->
 %%--------------------------------------------------------------------
 handle_info({'DOWN', LRef, process, _Object, Info}, 
 	    #state{listenerRef = LRef} = State) ->
-    error_logger:error_report("tcp listener 'DOWN'! will restart"),
+    error_logger:error_report("tcp listener 'DOWN'! will restart!"),
     NewRef = start_listener(State#state.lport),
     {noreply, State#state{listenerRef = NewRef}};
     
@@ -146,8 +152,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 start_listener(Port) ->
-    register(tcp_listener,spawn(?MODULE,listen,[Port])),
-    erlang:monitor(process,tcp_listener).
+    {Pid,Ref} = spawn_monitor(?MODULE,listen,[Port]),
+    register(tcp_listener,Pid),
+    Ref.
 
 
 -spec listen(integer()) -> ok | {error, Reason::term()}.
@@ -155,10 +162,14 @@ listen(Port) ->
     error_logger:info_msg("start listen on port: ~p ~n", [Port]),
     case gen_tcp:listen(Port,[binary,
 			      {ip,{127,0,0,1}},
-			      {active,2}
-			     ]) of
+			      {active,10}]) 
+    of
+
 	{ok, LSocket} ->
 	    accept_loop(LSocket);
+	{error,eaddrinuse} ->
+	    timer:sleep(1000),
+	    listen(Port);
 	{error,Reason} ->
 	    throw({listen_error, Reason})
     end.
@@ -167,41 +178,58 @@ listen(Port) ->
 -spec accept_loop(inet:socket()) -> no_return().
 accept_loop(LSocket) ->
     {ok,Socket} = gen_tcp:accept(LSocket),
-    Pid = spawn(?MODULE,tcp_handler,[Socket]),
+    {Pid,_Ref} = spawn_monitor(?MODULE,tcp_handler,[Socket]),
     gen_tcp:controlling_process(Socket, Pid),
-    erlang:monitor(process, Pid),
-    accept_loop(LSocket).
+    receive 
+	{'DOWN',_Ref, process,_Pid,normal} ->
+	    accept_loop(LSocket);
+	{'DOWN',_Ref, process,Pid,Reason} ->
+	    error_logger:error_report("Pid ~p down, due to ~p \n",
+				     [Pid,Reason]),
+	    accept_loop(LSocket)
+    after 0 ->
+	    accept_loop(LSocket)
+    end.
+
 
 
 tcp_handler(Socket) ->
-    loop(Socket).
+    {ok,Ref} = timer:send_after(?Regtimer, self(), regtimeout),
+    loop(Socket,{Ref}).
 
--spec loop(inet:socket()) -> no_return() | ok.
-loop(Sock) ->
+-spec loop(inet:socket(), {timer:tref()}) -> no_return() | ok.
+loop(Sock, {Ref} = State) ->
     receive
-	{tcp, Socket, Data } ->
-	    validate(Data) andalso
-		recv_msg(Sock,strip_nl(Data)),
-	    %%ok = gen_tcp:send(Sock,<< "welcome!",Data/binary>>),
-	    loop(Socket);
-
-	%% {tcp, SockOther, Data} ->
-	%%     ok = gen_tcp:send(SockOther,<< "welcome!",Data/binary>>),
-	%%     loop(Sock);
-
 	{tcp_passive, Socket} ->
 	    inet:setopts(Socket,[{active,10}]),
-	    loop(Socket);
+	    loop(Socket,State);
+
+	{tcp, Socket, Data } ->
+	    validate(Data) 
+		andalso recv_msg(Sock,strip_nl(Data)),
+		
+	    loop(Socket,State);
 	
 	{tcp_closed, Socket} ->
 	    user_offline();
 
+	{send, Bin } ->
+	    gen_tcp:send(Sock, Bin),
+	    loop(Sock,State);
+
+	regtimeout ->
+	    gen_tcp:shutdown(Sock,read_write);
+	
+	stop_reg_timer ->
+	    timer:cancel(Ref),
+	    loop(Sock,{Ref});
+
 	Unknown ->
-	    error_logger:error_report("Get tcp_passive: ~p~n", Unknown),
-	    loop(Sock)
+	    io:format("Get Unknown: ~p~n", [Unknown]),
+	    loop(Sock,State)
 
     after  ?INACTIVE_INIT_TIMEOUT ->
-	    %%todo:disconnect
+	    erlang:hibernate(?MODULE,loop,[Sock,State]),
 	    ok
     end.
 	       
@@ -237,6 +265,7 @@ handle_cmd(<< "name:", NameRaw/binary>>) ->
 	ok ->
 	    put(name,Name),
 	    put(is_reg,true),
+	    stop_reg_timer(),
 	    [{replyto,<< "Welcome ", Name/binary, "!\n" >>}];
 	{error,Error} ->
 	    BinErr = list_to_binary(Error),
@@ -253,7 +282,7 @@ counter_step(_)->
 
 %%todo
 boardcast(Msg) ->
-    gen_server:cast(chat_service, {boardcast, Msg, get(name)}).
+    chat_service:boardcast(Msg,get(name)).
 
 %%todo    
 user_offline() ->
@@ -263,9 +292,14 @@ user_offline() ->
 
 -spec strip_nl(binary()) -> binary().
 strip_nl(Bin) ->
-    Len = byte_size(Bin),
-    binary:part(Bin,0,Len-1).
-
+    case binary:last(Bin) of
+	$\n ->
+	    Size = byte_size(Bin),
+	    binary:part(Bin, 0,Size-1);
+	_ ->
+	    Bin
+    end.
+    
 -spec validate(binary()) -> boolean().    
 validate(<<$\n>>) ->  
     %%% blank space shall be dropped
@@ -275,16 +309,22 @@ validate(Bin) ->
 
 -spec strip_bs(binary()) -> binary().
 %%todo strip bs and tab
-strip_bs(<<" ",Left/binary >>) ->
+strip_bs(<<$\ ,Left/binary >>) ->
     strip_bs(Left);
-strip_bs(Bin) -> 
-    case binary:last(Bin) == " " of %%todo more effecy
-    strip_bs(binary:part(Bin,0,byte_size(Bin)-1);
+strip_bs(Bin) ->
+    case binary:last(Bin) of
+	Blank when Blank == $\  orelse Blank == $\t ->
+	    Size = byte_size(Bin),
+	    strip_bs(binary:part(Bin, 0,Size-1));
+	_ ->
+	    Bin
+    end.
+
+
+stop_reg_timer() ->	    
+    self() ! stop_reg_timer.
 
 -ifdef(TEST).
-
-strip_nl_test() ->
-    ?assert(<< "hello world">>  == strip_nl(<<"hello world\n">>)).
 
 validate_test_() ->
     [ ?_assertNot(validate(<<"\n">>)),
@@ -296,5 +336,23 @@ validate_test_() ->
       ?_assertNot(validate(<<"\n hello world \n ">>)),
       ?_assertNot(validate(<<"\jabn">>))
     ].
+
+strip_nl_test_() ->
+      [?_assert(strip_nl(<<"\njabn">>) ==  <<"\njabn">>),
+       ?_assert(strip_nl(<<"jab\n">>) ==  <<"jab">>),
+       ?_assert(strip_nl(<<"jab\n\n">>) ==  <<"jab\n">>),
+
+       ?_assert(<< "hello world">>  == strip_nl(<<"hello world\n">>)),
+       ?_assert(strip_nl(<<" jab \n \n">>) ==  <<" jab \n ">>)
+       ].
+
+strip_bs_test_() ->
+      [?_assert(strip_bs(<<"jab">>) ==  <<"jab">>),
+       ?_assert(strip_bs(<<" jab">>) ==  <<"jab">>),    
+       ?_assert(strip_bs(<<" jab ">>) ==  <<"jab">>),    
+       ?_assert(strip_bs(<<"jab ">>) ==  <<"jab">>),    
+       ?_assert(strip_bs(<<"j a b ">>) ==  <<"j a b">>),    
+       ?_assert(strip_bs(<<"   j a b   ">>) ==  <<"j a b">>)
+       ].
 
 -endif.

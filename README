@@ -2,7 +2,7 @@
 Layout:
 
 ==============================
-service layer  |  chat_service
+ service layer  | chat_service
 ==============================
 transport layer | chat_trpt
 ==============================
@@ -21,3 +21,11 @@ Processes:
  worker	|      | worker
 	|      |
     chat_trpt  chat_service
+        |
+     -------
+     |  |  |
+     O .o. O 
+    per user
+
+TODO:
+# 

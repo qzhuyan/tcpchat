@@ -1,8 +1,8 @@
 app=tcs
 
-all: compile eunit  dialyzer generate tar 
+all: compile eunit  dialyzer rel tar 
 
-compile:
+compile: rebar.conf
 	./rebar co
 
 eunit:  compile
@@ -10,12 +10,16 @@ eunit:  compile
 
 clean:  
 	./rebar clean
+	rm -rf out/*
+	rm -rf rel/tcs
 
-generate: compile 
+rel:   rel_check 
 	cd rel/; ../rebar compile generate
 
-tar:	generate
-	cd rel;tar czf ../out/$app-`git  rev-parse   --short HEAD`.tar.gz tcs
+rel_check: test dialyzer
+
+tar:	rel
+	cd rel;tar czf ../out/${app}-`git  rev-parse   --short HEAD`.tar.gz tcs
 
 plt:    
 	dialyzer --check_plt --apps erts kernel stdlib crypto sasl  \
@@ -24,3 +28,8 @@ plt:
 dialyzer: plt
 	dialyzer --plts plts/OTP_APPS.plt  --src  src/ || exit 1;
 
+ct:	eunit
+	mkdir -p /tmp/${app}_ct/
+	ct_run -name ct@127.0.0.1 -suite test/suite/chat_trpt_SUITE.erl -logdir /tmp/${app}_ct/
+
+test:	eunit ct
