@@ -1,5 +1,5 @@
 app=tcs
-
+logPath=/tmp/_${app}_ct/
 all: compile eunit  dialyzer rel tar 
 
 compile: rebar.conf
@@ -29,7 +29,8 @@ dialyzer: plt
 	dialyzer --plts plts/OTP_APPS.plt  --src  src/ || exit 1;
 
 ct:	eunit
-	mkdir -p /tmp/${app}_ct/
-	ct_run -name ct@127.0.0.1 -suite test/suite/chat_trpt_SUITE.erl -logdir /tmp/${app}_ct/
+	rm -rf ${logPath}
+	mkdir -p ${logPath}
+	ct_run -name ct@127.0.0.1 -suite test/suite/chat_trpt_SUITE.erl -logdir  ${logPath}
 
 test:	eunit ct
