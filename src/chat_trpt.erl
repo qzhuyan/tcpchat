@@ -112,9 +112,9 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info({'DOWN', LRef, process, _Object, Info}, 
+handle_info({'DOWN', LRef, process, _Object, _Info}, 
 	    #state{listenerRef = LRef} = State) ->
-    error_logger:error_report("tcp listener 'DOWN'! will restart!"),
+    error_logger:error_report("tcp listener 'DOWN'! restart now!"),
     NewRef = start_listener(State#state.lport),
     {noreply, State#state{listenerRef = NewRef}};
     
@@ -210,7 +210,7 @@ loop(Sock, {Ref} = State) ->
 		
 	    loop(Socket,State);
 	
-	{tcp_closed, Socket} ->
+	{tcp_closed, Sock} ->
 	    user_offline();
 
 	{send, Bin } ->
@@ -239,7 +239,7 @@ recv_msg(Sock,<<?ESCAPE, Tail/binary>>) ->
     counter_step(cmd),
     cmd_actions(Sock,handle_cmd(Tail));
 
-recv_msg(Sock,ChatMsg) ->
+recv_msg(_Sock,ChatMsg) ->
     case get(name) of
 	 undefined ->
 	    drop;
@@ -247,17 +247,15 @@ recv_msg(Sock,ChatMsg) ->
 	    boardcast(ChatMsg)
     end.
 
-%%todo
+-type cmd_act() :: {sendto, Data:: binary()}.
+-spec cmd_actions(Sock::inet:socket() , ActionList :: [cmd_act()]) -> no_return().
 cmd_actions(Sock,ActionList) ->
     [do_action(Act,Sock) || Act <- ActionList].
 
 
-%%todo
 do_action({replyto,Msg},Sock) ->
     gen_tcp:send(Sock,Msg).
     
-    
-%%todo
 -spec handle_cmd(UserMsg :: binary()) -> [{Action :: atom() , Msg :: binary()}].
 handle_cmd(<< "name:", NameRaw/binary>>) ->
     Name = strip_bs(NameRaw),
@@ -280,11 +278,11 @@ handle_cmd(UnknownBin) ->
 counter_step(_)->
     ok.
 
-%%todo
+-spec boardcast(binary()) -> ok.
 boardcast(Msg) ->
     chat_service:boardcast(Msg,get(name)).
 
-%%todo    
+-spec user_offline() -> ok.
 user_offline() ->
     Name = get(name),
     chat_service:user_offline(Name),
@@ -308,8 +306,9 @@ validate(Bin) ->
     $\n == binary:last(Bin) .
 
 -spec strip_bs(binary()) -> binary().
-%%todo strip bs and tab
 strip_bs(<<$\ ,Left/binary >>) ->
+    strip_bs(Left);
+strip_bs(<<$\t ,Left/binary >>) ->
     strip_bs(Left);
 strip_bs(Bin) ->
     case binary:last(Bin) of
@@ -352,7 +351,9 @@ strip_bs_test_() ->
        ?_assert(strip_bs(<<" jab ">>) ==  <<"jab">>),    
        ?_assert(strip_bs(<<"jab ">>) ==  <<"jab">>),    
        ?_assert(strip_bs(<<"j a b ">>) ==  <<"j a b">>),    
-       ?_assert(strip_bs(<<"   j a b   ">>) ==  <<"j a b">>)
+       ?_assert(strip_bs(<<"   j a b   ">>) ==  <<"j a b">>),
+       ?_assert(strip_bs(<<"   j a b\t   ">>) ==  <<"j a b">>),
+       ?_assert(strip_bs(<<" \t  j a b\t   ">>) ==  <<"j a b">>)
        ].
 
 -endif.

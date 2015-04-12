@@ -147,7 +147,6 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-%%todo what is name?
 handle_cast({boardcast, Msg, User}, State) ->
     case flow_ctrl() of
 	accept ->
