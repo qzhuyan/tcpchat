@@ -224,7 +224,7 @@ tc_ratelimit(_Config) ->
 %%% help functions
 reg_user(Name) ->
     {ok,S} = gen_tcp:connect({127,0,0,1}, 6667, [{active,false}], 2000),
-    ok = gen_tcp:send(S,"#\\name:"++Name++"\n"),
+    ok = gen_tcp:send(S,"\$\\name:"++Name++"\n"),
     {S,gen_tcp:recv(S,0)}.
 
 

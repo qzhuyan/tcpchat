@@ -1,5 +1,33 @@
+=  Description  =
+This is a simple tcp chat server called 'tcs'.
+User connects to tcs via tcp port 127.0.0.1:6667
+After tcp is established, user should login with "#\name $USER" for example, 
+"$\name: Bob\n" within 10s otherwise tcp connection will be closed by server
+ for security consideration.
 
-Layout:
+After login, user can start to send chat messages and it will be boardcast to 
+the other users on the same server.
+
+= Howto =
+#Requires
+ OTP17
+
+#compile
+make
+
+#test after build
+make test
+
+#start server, will listen on 127.0.0.1:6667
+./app start
+
+#Usage:
+ncat 127.0.0.1 6667
+
+
+
+= Design = 
+#Layout:
 
 ==============================
  service layer  | chat_service
@@ -8,24 +36,32 @@ transport layer | chat_trpt
 ==============================
 
 
+#Processes:
 
-Processes:
-
-	tcs_app
+	tcs_app (long live)
 	   |
 	   | start
 	   v
-	tcs_sup (supervisor)
+	tcs_sup (supervisor, long live)
 	   | 
 	--------
- worker	|      | worker
-	|      |
+ worker	|      | worker  (long live)
+	|      | 
     chat_trpt  chat_service
         |
-     -------
-     |  |  |
-     O .o. O 
-    per user
+        |
+	|
+    tcp_listener
+        |
+     ------------
+     |  |  |    |
+     O .O. O... O per user procs
 
-TODO:
-# 
+
+#Modules:
+tcs_app.erl: App module.
+tcs_sup.erl: Supervisor.
+chat_trpt.erl: handles tcp connections.
+chat_service.erl Provides userdata, chatroom, and other 'application' service.
+
+

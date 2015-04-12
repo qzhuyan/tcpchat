@@ -29,7 +29,7 @@
 	       listenerRef :: reference()}).
 
 -define(ListenPort, 6667).
--define(ESCAPE,"#\\").
+-define(ESCAPE,"\$\\").
 -define(INACTIVE_INIT_TIMEOUT, 15000).
 -define(Regtimer, 10000).
 
@@ -183,9 +183,8 @@ accept_loop(LSocket) ->
     receive 
 	{'DOWN',_Ref, process,_Pid,normal} ->
 	    accept_loop(LSocket);
-	{'DOWN',_Ref, process,Pid,Reason} ->
-	    error_logger:error_report("Pid ~p down, due to ~p \n",
-				     [Pid,Reason]),
+	{'DOWN',_Ref, process,_Pid,Reason} ->
+	    counter_step({prodead,Reason}),
 	    accept_loop(LSocket)
     after 0 ->
 	    accept_loop(LSocket)

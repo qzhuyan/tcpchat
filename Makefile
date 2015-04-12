@@ -21,7 +21,7 @@ tar:	dialyzer rel
 	cd rel;tar czf ../out/${app}-`git  rev-parse   --short HEAD`.tar.gz tcs
 
 plt:    
-	dialyzer --check_plt --apps erts kernel stdlib crypto sasl  \
+	dialyzer --build_plt --apps erts kernel stdlib crypto sasl  \
 	--output_plt plts/OTP_APPS.plt
 
 dialyzer: compile plt
