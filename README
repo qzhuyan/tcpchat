@@ -1,0 +1,23 @@
+
+Layout:
+
+==============================
+service layer  |  chat_service
+==============================
+transport layer | chat_trpt
+==============================
+
+
+
+Processes:
+
+	tcs_app
+	   |
+	   | start
+	   v
+	tcs_sup (supervisor)
+	   | 
+	--------
+ worker	|      | worker
+	|      |
+    chat_trpt  chat_service
