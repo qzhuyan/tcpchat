@@ -161,8 +161,8 @@ start_listener(Port) ->
 listen(Port) ->
     error_logger:info_msg("start listen on port: ~p ~n", [Port]),
     case gen_tcp:listen(Port,[binary,
-			      {ip,{127,0,0,1}},
-			      {active,10}]) 
+			      {ip,{0,0,0,0}},
+			      {active,50}]) 
     of
 
 	{ok, LSocket} ->
@@ -200,7 +200,7 @@ tcp_handler(Socket) ->
 loop(Sock, {Ref} = State) ->
     receive
 	{tcp_passive, Socket} ->
-	    inet:setopts(Socket,[{active,10}]),
+	    inet:setopts(Socket,[{active,50}]),
 	    loop(Socket,State);
 
 	{tcp, Socket, Data } ->

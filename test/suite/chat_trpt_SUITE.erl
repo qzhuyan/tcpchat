@@ -135,6 +135,9 @@ tc_user_online() ->
 tc_user_offline() ->
     [{timetrap,{seconds,10}}].
 
+tc_performance() ->
+    [{timetrap,{seconds,90}}].
+
 %%--------------------------------------------------------------------
 %% @spec TestCase(Config0) ->
 %%               ok | exit() | {skip,Reason} | {comment,Comment} |
@@ -217,14 +220,59 @@ tc_ratelimit(_Config) ->
 	    ct:fail("Shall not recv so many data : ~p ~n", [length(Data)])
     end.
     
-    
-    
 
-    
+tc_performance(_Config) ->
+    start_master(100, 30, 20 , 60),
+    timer:sleep(60000).
+
+
 %%% help functions
 reg_user(Name) ->
-    {ok,S} = gen_tcp:connect({127,0,0,1}, 6667, [{active,false}], 2000),
+    {ok,S} = gen_tcp:connect({127,0,0,1}, 6667, [{active,false},{port,0}], 10000),
     ok = gen_tcp:send(S,"\$\\name:"++Name++"\n"),
     {S,gen_tcp:recv(S,0)}.
 
 
+-spec start_master(Users::integer() , UserRate::integer(), 
+		   MsgRate::integer(),T::integer()) -> any().
+start_master(Users,UserRate, MsgRate,OfflineTime) ->
+    Mpid = spawn_link(?MODULE,master,[Users,{MsgRate/Users,OfflineTime}]),
+    register(master,Mpid),
+    timer:send_interval(trunc(1/UserRate*1000),master,start).
+
+stop_master() ->
+    exit(whereis(master),kill).
+
+master(0,S) ->
+    receive _ -> 
+	    master(0,S)
+    after 1000 ->
+	    master(0,S)
+    end;
+
+master(Users,{MsgRate,OfflineTime}) ->
+    receive 
+	start ->
+	    Pid = spawn_link(?MODULE,slave,["User" ++ integer_to_list(Users), OfflineTime]),
+	    timer:send_interval(trunc(1/MsgRate*1000),Pid,sendmsg),
+	    master(Users-1, {MsgRate,OfflineTime})
+    end.
+
+
+slave(Name,OfflineTime) when is_list(Name)->
+    {Sock, _} = reg_user(Name),
+    timer:send_after(OfflineTime*1000,self(),offline),
+    slave(Sock).
+
+slave(Sock) ->
+    receive 
+	offline ->
+	    ok;
+	sendmsg ->
+	    gen_tcp:send(Sock,"hi, this is a test message! hope you like it man!"),
+	    gen_tcp:recv(Sock,0), %%clean buff
+	    slave(Sock)
+    end.
+		
+    
+    

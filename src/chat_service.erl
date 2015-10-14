@@ -112,21 +112,10 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({user_reg,Name}, {Pid, _Ref} = _From, State) ->
-    Reply = 
-	case ets:lookup(regtab,Name) of
-	    [] -> 
-		U = #userinfo{name=Name, pid=Pid},
-		ets:insert(regtab,U),
-		join_chat_room(default,U),
-		ok;
-	    [{Name,Pid}] -> %%already registered
-		ok;
-	    [_] -> 
-		{error,"username already exits, try other names!"}
-	end,
-		  
-    {reply, Reply, State};
+handle_call({user_reg,Name}, From, State) ->
+    %todo: monitor this
+    spawn(fun() -> do_user_reg(Name,From) end),
+    {noreply,  State};
 
 
 handle_call({user_offline,Name}, _From, State) ->
@@ -156,7 +145,6 @@ handle_cast({boardcast, Msg, User}, State) ->
 		
     end,
     {noreply, State};
-
 
 handle_cast({cleantab,Name}, State) ->
     ets:delete_all_objects(Name),
@@ -213,15 +201,16 @@ code_change(_OldVsn, State, _Extra) ->
 init_tabs() ->
     ets:info(regtab) == undefined 
 	andalso ets:new(regtab,[set,
-				protected,
+				public,
 				named_table,
 				{keypos,2},
-				{read_concurrency,true}
+				{read_concurrency,true},
+				{write_concurrency,true}
 			       ]),
     case ets:info(chatrooms) of
 	undefined ->
 	    chatrooms= ets:new(chatrooms,[set,
-					  protected,
+					  public,
 					  {keypos,1},
 					  {read_concurrency,true},
 					  named_table
@@ -302,6 +291,20 @@ get_remote_pid_chat_room(RoomName) ->
 format_msg(Sender,Msgbin) ->
     << "[",Sender/binary, ":]" , Msgbin/binary, "\n">>.
     
+
+do_user_reg(Name,{Pid,_Ref}=From)->
+    Res = case ets:lookup(regtab,Name) of
+	      [] -> 
+		  U = #userinfo{name=Name, pid=Pid},
+		  ets:insert(regtab,U),
+		  join_chat_room(default,U),
+		  ok;
+	      [{Name,Pid}] -> %%already registered
+		  ok;
+	      [_] -> 
+		  {error,"username already exits, try other names!"}
+	  end,
+    gen_server:reply(From,Res).
 
 -ifdef(TEST).
 format_msg_test_() ->

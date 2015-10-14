@@ -10,13 +10,17 @@
 
 ## Enable kernel poll and a few async threads
 +K true
-##+A 5
++A 5
 
 ## Increase number of concurrent ports/sockets
 -env ERL_MAX_PORTS 409600
 
 ## Tweak GC to run more often
 ##-env ERL_FULLSWEEP_AFTER 10
+
++MMscs 50
+
++sub true
 
 +P 1048576
 -pa dev_patches

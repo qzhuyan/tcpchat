@@ -2,8 +2,11 @@ app=tcs
 logPath=/tmp/_${app}_ct/
 all: tar 
 
-compile: rebar.conf
+compile: deps rebar.config 
 	./rebar co
+
+deps:   rebar.config 
+	./rebar.co g-d
 
 eunit:  compile
 	./rebar eu
@@ -22,9 +25,9 @@ tar:	dialyzer rel
 
 plt:    
 	dialyzer --build_plt --apps erts kernel stdlib crypto sasl  \
-	--output_plt plts/OTP_APPS.plt
+	--output_plt plts/OTP_APPS.plt; 
 
-dialyzer: compile plt
+dialyzer: compile 
 	dialyzer --plts plts/OTP_APPS.plt  --src  src/ || exit 1;
 
 ct:	eunit
